@@ -2207,7 +2207,6 @@ namespace olc
 		}
 		else
 		{
-			pSprite.release();
 			pSprite = nullptr;
 			return olc::rcode::NO_FILE;
 		}
