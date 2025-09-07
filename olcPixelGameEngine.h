@@ -361,6 +361,7 @@
 		  +SpritePatch
 		  +DecalPatch
 		  +Added the Colour "Orange" cos some internet rando made me laugh about it :D
+		  +Changed ClipLineToScreen to ClipLineToDrawTarget
 
 
 	!! Apple Platforms will not see these updates immediately - Sorry, I dont have a mac to test... !!
@@ -1080,7 +1081,10 @@ namespace olc
 		Sprite(const std::string& sImageFile, olc::ResourcePack* pack = nullptr);
 		Sprite(int32_t w, int32_t h);
 		Sprite(const olc::Sprite&) = delete;
+		Sprite(olc::Sprite&&);
 		~Sprite();
+		Sprite& operator=(const olc::Sprite&) = delete;
+		Sprite& operator=(olc::Sprite&&);
 
 	public:
 		olc::rcode LoadFromFile(const std::string& sImageFile, olc::ResourcePack* pack = nullptr);
@@ -1142,6 +1146,8 @@ namespace olc
 
 	public: // But dont touch
 		int32_t id = -1;
+		int32_t width = 0;
+		int32_t height = 0;
 		olc::Sprite* sprite = nullptr;
 		olc::vf2d vUVScale = { 1.0f, 1.0f };
 	};
@@ -1513,7 +1519,7 @@ namespace olc
 		olc::Sprite* GetFontSprite();
 
 		// Clip a line segment to visible area
-		bool ClipLineToScreen(olc::vi2d& in_p1, olc::vi2d& in_p2);
+		bool ClipLineToDrawTarget(olc::vi2d& in_p1, olc::vi2d& in_p2);
 
 
 		// Patches
@@ -1993,6 +1999,32 @@ namespace olc
 		SetSize(w, h);
 	}
 
+	Sprite::Sprite(olc::Sprite&& spr)
+	{
+		width = spr.width;
+		spr.width = 0;
+
+		height = spr.height;
+		spr.height = 0;
+
+		pColData = std::move(spr.pColData);
+
+		modeSample = spr.modeSample;
+	}
+
+	Sprite& Sprite::operator=(olc::Sprite&& spr)
+	{
+		std::swap(width, spr.width);
+
+		std::swap(height, spr.height);
+
+		std::swap(pColData, spr.pColData);
+
+		std::swap(modeSample, spr.modeSample);
+
+		return *this;
+	}
+
 	void Sprite::SetSize(int32_t w, int32_t h)
 	{
 		width = w;		height = h;
@@ -2156,6 +2188,8 @@ namespace olc
 	{
 		id = -1;
 		if (spr == nullptr) return;
+		width = spr->width;
+		height = spr->height;
 		sprite = spr;
 		id = renderer->CreateTexture(sprite->width, sprite->height, filter, clamp);
 		Update();
@@ -2170,7 +2204,9 @@ namespace olc
 	void Decal::Update()
 	{
 		if (sprite == nullptr) return;
-		vUVScale = { 1.0f / float(sprite->width), 1.0f / float(sprite->height) };
+		width = sprite->width;
+		height = sprite->height;
+		vUVScale = { 1.0f / float(width), 1.0f / float(height) };
 		renderer->ApplyTexture(id);
 		renderer->UpdateTexture(id, sprite);
 	}
@@ -2178,6 +2214,7 @@ namespace olc
 	void Decal::UpdateSprite()
 	{
 		if (sprite == nullptr) return;
+		sprite->SetSize(width, height);
 		renderer->ApplyTexture(id);
 		renderer->ReadTexture(id, sprite);
 	}
@@ -2207,7 +2244,6 @@ namespace olc
 		}
 		else
 		{
-			pSprite.release();
 			pSprite = nullptr;
 			return olc::rcode::NO_FILE;
 		}
@@ -2741,7 +2777,7 @@ namespace olc
 		auto rol = [&](void) { pattern = (pattern << 1) | (pattern >> 31); return pattern & 1; };
 
 		olc::vi2d p1(x1, y1), p2(x2, y2);
-		if (!ClipLineToScreen(p1, p2))
+		if (!ClipLineToDrawTarget(p1, p2))
 			return;
 		x1 = p1.x; y1 = p1.y;
 		x2 = p2.x; y2 = p2.y;
@@ -2933,15 +2969,17 @@ namespace olc
 		return fontRenderable.Sprite();
 	}
 
-	bool PixelGameEngine::ClipLineToScreen(olc::vi2d& in_p1, olc::vi2d& in_p2)
+	bool PixelGameEngine::ClipLineToDrawTarget(olc::vi2d& in_p1, olc::vi2d& in_p2)
 	{
+		olc::vi2d vDrawTargetSize{ (int32_t)GetDrawTargetWidth(), (int32_t)GetDrawTargetHeight() };
+
 		// https://en.wikipedia.org/wiki/Cohen%E2%80%93Sutherland_algorithm
 		static constexpr int SEG_I = 0b0000, SEG_L = 0b0001, SEG_R = 0b0010, SEG_B = 0b0100, SEG_T = 0b1000;
-		auto Segment = [&vScreenSize = vScreenSize](const olc::vi2d& v)
+		auto Segment = [&vDrawTargetSize = vDrawTargetSize](const olc::vi2d& v)
 			{
 				int i = SEG_I;
-				if (v.x < 0) i |= SEG_L; else if (v.x > vScreenSize.x) i |= SEG_R;
-				if (v.y < 0) i |= SEG_B; else if (v.y > vScreenSize.y) i |= SEG_T;
+				if (v.x < 0) i |= SEG_L; else if (v.x > vDrawTargetSize.x) i |= SEG_R;
+				if (v.y < 0) i |= SEG_B; else if (v.y > vDrawTargetSize.y) i |= SEG_T;
 				return i;
 			};
 
@@ -2955,9 +2993,9 @@ namespace olc
 			{
 				int s3 = s2 > s1 ? s2 : s1;
 				olc::vi2d n;
-				if (s3 & SEG_T) { n.x = in_p1.x + (in_p2.x - in_p1.x) * (vScreenSize.y - in_p1.y) / (in_p2.y - in_p1.y); n.y = vScreenSize.y; }
+				if (s3 & SEG_T) { n.x = in_p1.x + (in_p2.x - in_p1.x) * (vDrawTargetSize.y - in_p1.y) / (in_p2.y - in_p1.y); n.y = vDrawTargetSize.y; }
 				else if (s3 & SEG_B) { n.x = in_p1.x + (in_p2.x - in_p1.x) * (0 - in_p1.y) / (in_p2.y - in_p1.y); n.y = 0; }
-				else if (s3 & SEG_R) { n.x = vScreenSize.x; n.y = in_p1.y + (in_p2.y - in_p1.y) * (vScreenSize.x - in_p1.x) / (in_p2.x - in_p1.x); }
+				else if (s3 & SEG_R) { n.x = vDrawTargetSize.x; n.y = in_p1.y + (in_p2.y - in_p1.y) * (vDrawTargetSize.x - in_p1.x) / (in_p2.x - in_p1.x); }
 				else if (s3 & SEG_L) { n.x = 0; n.y = in_p1.y + (in_p2.y - in_p1.y) * (0 - in_p1.x) / (in_p2.x - in_p1.x); }
 				if (s3 == s1) { in_p1 = n; s1 = Segment(in_p1); }
 				else { in_p2 = n; s2 = Segment(in_p2); }
@@ -3519,8 +3557,8 @@ namespace olc
 
 		olc::vf2d vScreenSpaceDim =
 		{
-			vScreenSpacePos.x + (2.0f * (float(decal->sprite->width) * vInvScreenSize.x)) * scale.x,
-			vScreenSpacePos.y - (2.0f * (float(decal->sprite->height) * vInvScreenSize.y)) * scale.y
+			vScreenSpacePos.x + (2.0f * (float(decal->width) * vInvScreenSize.x)) * scale.x,
+			vScreenSpacePos.y - (2.0f * (float(decal->height) * vInvScreenSize.y)) * scale.y
 		};
 
 		DecalInstance di;
@@ -5614,8 +5652,8 @@ namespace olc
 				{
 					olc::Pixel p = task.vb[n].c;
 					glColor4ub(GLubyte(p.r * f[0]), GLubyte(p.g * f[1]), GLubyte(p.b * f[2]), GLubyte(p.a * f[3]));
-					glVertex4f(task.vb[n].p[4], task.vb[n].p[5], 0.0f, task.vb[n].p[3]);
-					glTexCoord2f(task.vb[n].p[0], task.vb[n].p[1]);
+					glTexCoord2f(task.vb[n].p[4], task.vb[n].p[5]);
+					glVertex4f(task.vb[n].p[0], task.vb[n].p[1], 0.0f, task.vb[n].p[3]);
 				}
 			}
 
@@ -5680,7 +5718,7 @@ namespace olc
 
 		void ReadTexture(uint32_t id, olc::Sprite* spr) override
 		{
-			glReadPixels(0, 0, spr->width, spr->height, GL_RGBA, GL_UNSIGNED_BYTE, spr->GetData());
+			glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, spr->GetData());
 		}
 
 		void ApplyTexture(uint32_t id) override
@@ -6270,7 +6308,7 @@ namespace olc
 
 		void ReadTexture(uint32_t id, olc::Sprite* spr) override
 		{
-			glReadPixels(0, 0, spr->width, spr->height, GL_RGBA, GL_UNSIGNED_BYTE, spr->GetData());
+			glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, spr->GetData());
 		}
 
 		void ApplyTexture(uint32_t id) override
