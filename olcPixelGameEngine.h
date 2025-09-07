@@ -5613,8 +5613,8 @@ namespace olc
 				{
 					olc::Pixel p = task.vb[n].c;
 					glColor4ub(GLubyte(p.r * f[0]), GLubyte(p.g * f[1]), GLubyte(p.b * f[2]), GLubyte(p.a * f[3]));
-					glVertex4f(task.vb[n].p[4], task.vb[n].p[5], 0.0f, task.vb[n].p[3]);
-					glTexCoord2f(task.vb[n].p[0], task.vb[n].p[1]);
+					glTexCoord2f(task.vb[n].p[4], task.vb[n].p[5]);
+					glVertex4f(task.vb[n].p[0], task.vb[n].p[1], 0.0f, task.vb[n].p[3]);
 				}
 			}
 
