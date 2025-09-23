@@ -362,6 +362,7 @@
 		  +DecalPatch
 		  +Added the Colour "Orange" cos some internet rando made me laugh about it :D
 		  +Changed ClipLineToScreen to ClipLineToDrawTarget
+		  +Fix DrawRotatedDecal() on Linux
 
 
 	!! Apple Platforms will not see these updates immediately - Sorry, I dont have a mac to test... !!
